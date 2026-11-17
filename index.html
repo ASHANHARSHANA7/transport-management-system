@@ -1,0 +1,2485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>TMS Pro — Night Shift Transport & Dispatch System</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js for Visual Analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <!-- SheetJS (xlsx) for Excel Report Generation -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Supabase JS Client SDK v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Font Awesome for Logistics Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+            touch-action: manipulation;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Prevent iOS Safari auto-zoom on form controls on mobile screens */
+        @media (max-width: 767px) {
+            input, select, textarea {
+                font-size: 16px !important;
+            }
+        }
+        /* Safe bottom spacing on mobile so fixed bottom nav & floating selection bar never cover content */
+        .mobile-safe-bottom {
+            padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+        }
+        @media (min-width: 768px) {
+            .mobile-safe-bottom {
+                padding-bottom: 2rem;
+            }
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.85; }
+            100% { transform: scale(2.1); opacity: 0; }
+        }
+        .live-dot::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: #f59e0b;
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col mobile-safe-bottom">
+
+    <!-- Toast Notification Container (Replaces alert()) -->
+    <div id="toast-container" class="fixed top-20 md:top-auto md:bottom-5 right-4 left-4 md:left-auto md:right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Custom Confirmation Modal (Replaces confirm()) -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200 transform transition-all">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <h3 id="modal-title" class="text-lg font-bold text-slate-900">Confirm Action</h3>
+            </div>
+            <p id="modal-message" class="text-sm text-slate-600 mb-6 leading-relaxed">Are you sure you want to proceed?</p>
+            <div class="flex justify-end gap-3">
+                <button id="modal-cancel-btn" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition cursor-pointer">Cancel</button>
+                <button id="modal-confirm-btn" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm transition cursor-pointer">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Navigation Bar with Dual-View Switcher -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-30 border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-2.5 sm:py-3 flex items-center justify-between gap-2.5">
+            <!-- Brand & Active Night Shift Date Badge -->
+            <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-inner shadow-indigo-400/30 shrink-0">
+                    <i class="fa-solid fa-truck-fast text-white text-base sm:text-lg"></i>
+                </div>
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <h1 class="text-base sm:text-xl font-extrabold tracking-tight truncate">TMS <span class="text-indigo-400">Dispatch</span></h1>
+                        <span id="header-shift-badge" class="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700/80 inline-flex items-center gap-1">
+                            <i class="fa-solid fa-moon text-amber-400"></i>
+                            <span id="header-shift-text">Shift: 17/11/2026</span>
+                        </span>
+                        <button id="db-sync-badge" onclick="openDbSetupModal()" title="Click to view Supabase SQL table setup"
+                            class="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 border border-slate-700 inline-flex items-center gap-1 cursor-pointer hover:bg-slate-700 transition">
+                            <i class="fa-solid fa-circle-notch fa-spin text-[9px]"></i>
+                            <span id="db-sync-text">Connecting DB...</span>
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-slate-400 hidden sm:block mt-0.5">Night Shift Operations (6:00 PM – 8:00 AM) • Live Cloud Sync Enabled</p>
+                </div>
+            </div>
+
+            <!-- Desktop Dual-View Navigation Tabs (Hidden on small phones, replaced by bottom thumb bar) -->
+            <div class="hidden md:flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+                <button id="tab-request-btn" onclick="switchView('request')"
+                    class="px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer bg-indigo-600 text-white shadow-xs">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Request Portal</span>
+                </button>
+                <button id="tab-admin-btn" onclick="switchView('admin')"
+                    class="px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer text-slate-300 hover:text-white">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>Admin Panel</span>
+                    <span id="admin-tab-badge" class="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-slate-950">0</span>
+                </button>
+            </div>
+
+            <!-- Live Clock (Compact) -->
+            <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700/80 rounded-xl px-2.5 py-1.5 shrink-0">
+                <div class="text-right">
+                    <div id="live-date-display" class="text-[10px] sm:text-[11px] font-medium text-slate-400">Tue, Nov 17</div>
+                    <div id="live-clock-display" class="text-[11px] sm:text-xs font-bold font-mono text-emerald-400">10:04 PM</div>
+                </div>
+                <i class="fa-regular fa-clock text-slate-400 text-xs sm:text-sm hidden sm:inline"></i>
+            </div>
+        </div>
+    </header>
+
+    <!-- ========================================================================
+         VIEW 1: REQUEST PORTAL (CLEAN, FOCUSED STAFF SUBMISSION SCREEN)
+         ======================================================================== -->
+    <main id="view-request" class="flex-1 max-w-3xl w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-8">
+        <div class="bg-white rounded-2xl shadow-md border border-slate-200/90 overflow-hidden">
+            <!-- Form Header -->
+            <div class="bg-slate-900 text-white px-4 sm:px-6 py-4 sm:py-5 flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 text-indigo-400 flex items-center justify-center text-base sm:text-lg shrink-0">
+                        <i class="fa-solid fa-route"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-extrabold text-base sm:text-lg tracking-tight">New Transport Dispatch</h2>
+                        <p class="text-[11px] sm:text-xs text-slate-400">Submit your transport request for the active Night Shift</p>
+                    </div>
+                </div>
+                <div>
+                    <span class="inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-slate-800 text-amber-300 border border-slate-700">
+                        <i class="fa-solid fa-moon"></i> 6:00 PM – 8:00 AM Shift
+                    </span>
+                </div>
+            </div>
+
+            <!-- Request Submission Form -->
+            <form id="dispatch-form" class="p-4 sm:p-7 space-y-5">
+                <!-- Shift Date & Expectable Time -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="trip-date" class="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                                <i class="fa-regular fa-calendar mr-1 text-indigo-600"></i> Shift Date
+                            </label>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">Night Shift Auto</span>
+                        </div>
+                        <input type="date" id="trip-date" required
+                            class="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-base sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        <p class="text-[11px] text-slate-400 mt-1">12:00 AM – 8:00 AM stays on previous day's shift date.</p>
+                    </div>
+
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <label for="trip-expectable-time" class="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                                <i class="fa-regular fa-clock mr-1 text-indigo-600"></i> Expectable Time
+                            </label>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">Manual / Quick Tap</span>
+                        </div>
+                        <input type="time" id="trip-expectable-time" required
+                            class="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-base sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                        <!-- One-Thumb Mobile Quick Time Chips -->
+                        <div class="grid grid-cols-4 gap-1.5 mt-2">
+                            <button type="button" onclick="setQuickExpectableTime(0)"
+                                class="min-h-[36px] rounded-lg bg-slate-100 hover:bg-indigo-100 active:bg-indigo-200 text-slate-700 hover:text-indigo-800 text-xs font-bold transition cursor-pointer">
+                                Now
+                            </button>
+                            <button type="button" onclick="setQuickExpectableTime(15)"
+                                class="min-h-[36px] rounded-lg bg-slate-100 hover:bg-indigo-100 active:bg-indigo-200 text-slate-700 hover:text-indigo-800 text-xs font-bold transition cursor-pointer">
+                                +15m
+                            </button>
+                            <button type="button" onclick="setQuickExpectableTime(30)"
+                                class="min-h-[36px] rounded-lg bg-slate-100 hover:bg-indigo-100 active:bg-indigo-200 text-slate-700 hover:text-indigo-800 text-xs font-bold transition cursor-pointer">
+                                +30m
+                            </button>
+                            <button type="button" onclick="setQuickExpectableTime(60)"
+                                class="min-h-[36px] rounded-lg bg-slate-100 hover:bg-indigo-100 active:bg-indigo-200 text-slate-700 hover:text-indigo-800 text-xs font-bold transition cursor-pointer">
+                                +1h
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ungrouped Clickable Route Pills + Custom Input (Large Touch Targets) -->
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                        <i class="fa-solid fa-map-pin mr-1 text-indigo-600"></i> Select Route
+                    </label>
+                    <div id="route-pills-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Ekala" class="peer sr-only" checked>
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Ekala
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Ja-Ela" class="peer sr-only">
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Ja-Ela
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Colombo" class="peer sr-only">
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Colombo
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Minuwangoda" class="peer sr-only">
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Minuwangoda
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Katunayake" class="peer sr-only">
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Katunayake
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none">
+                            <input type="radio" name="route" value="Kotugoda" class="peer sr-only">
+                            <div class="min-h-[48px] flex items-center justify-center py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-indigo-600 peer-checked:bg-indigo-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs">
+                                Kotugoda
+                            </div>
+                        </label>
+                        <label class="cursor-pointer select-none col-span-2">
+                            <input type="radio" name="route" value="Others" class="peer sr-only">
+                            <div class="min-h-[48px] py-2.5 px-3 rounded-xl border-2 border-slate-200 bg-slate-50/70 hover:bg-white active:scale-[0.98] peer-checked:border-amber-600 peer-checked:bg-amber-600 peer-checked:text-white text-slate-700 font-bold text-sm text-center transition shadow-2xs flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-pen-to-square text-xs"></i>
+                                <span>Others (Type Custom Route)</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Conditional Custom Route Input (Shown when "Others" is clicked) -->
+                    <div id="custom-route-wrapper" class="hidden mt-3">
+                        <label for="custom-route-input" class="block text-[11px] font-bold uppercase tracking-wider text-amber-700 mb-1">
+                            Custom Destination / Route Name
+                        </label>
+                        <input type="text" id="custom-route-input" placeholder="Type destination name (e.g., Negombo, Seeduwa, Wattala)..."
+                            class="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border-2 border-amber-300 bg-amber-50/40 focus:bg-white text-base sm:text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500 transition">
+                    </div>
+                </div>
+
+                <!-- Team Selection Dropdown -->
+                <div>
+                    <label for="team-select" class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                        <i class="fa-solid fa-people-group mr-1 text-indigo-600"></i> Team (Receiving / Issuing)
+                    </label>
+                    <div class="relative">
+                        <select id="team-select" required
+                            class="w-full min-h-[46px] appearance-none px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-base sm:text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                            <option value="Receiving Team">Receiving Team</option>
+                            <option value="Issuing Team">Issuing Team</option>
+                        </select>
+                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500">
+                            <i class="fa-solid fa-chevron-down text-xs"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transport Staff Names -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <label for="staff-names" class="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                            <i class="fa-solid fa-user-tag mr-1 text-indigo-600"></i> Transport Staff Names
+                        </label>
+                        <span class="text-[11px] text-slate-400">Comma or new line separated</span>
+                    </div>
+                    <textarea id="staff-names" rows="2" required placeholder="Type staff names going on transport (e.g., Kasun Perera, Nimal Silva)..."
+                        class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-base sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></textarea>
+                </div>
+
+                <!-- Address Field -->
+                <div>
+                    <label for="trip-address" class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                        <i class="fa-solid fa-location-dot mr-1 text-indigo-600"></i> Address
+                    </label>
+                    <input type="text" id="trip-address" required placeholder="Enter drop-off address / junction / landmark..."
+                        class="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-base sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                </div>
+
+                <!-- Submit Button -->
+                <div class="pt-1">
+                    <button type="submit"
+                        class="w-full min-h-[52px] py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-extrabold text-base shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2.5 transition cursor-pointer">
+                        <i class="fa-solid fa-paper-plane"></i>
+                        <span>Submit Transport Request</span>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Post-Submission Quick Banner (Hidden until submitted) -->
+            <div id="request-success-banner" class="hidden mx-4 sm:mx-6 mb-5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-check"></i>
+                    </div>
+                    <div>
+                        <p class="text-sm font-bold text-emerald-950">Transport Request Submitted!</p>
+                        <p id="request-success-detail" class="text-xs text-emerald-700">Queued in Admin Panel for dispatch.</p>
+                    </div>
+                </div>
+                <button type="button" onclick="switchView('admin')" class="min-h-[40px] px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition cursor-pointer">
+                    Open Admin Panel →
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- ========================================================================
+         VIEW 2: ADMIN PANEL (OPERATIONAL COMMAND CENTER)
+         ======================================================================== -->
+    <main id="view-admin" class="hidden flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
+
+        <!-- Admin Top Toolbar: Shift Date Filter & Quick Exports -->
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2.5 w-full sm:w-auto">
+                    <span class="w-9 h-9 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-calendar-day"></i>
+                    </span>
+                    <div class="flex-1 sm:flex-initial">
+                        <label for="admin-shift-date-filter" class="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Viewing Night Shift Date</label>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <input type="date" id="admin-shift-date-filter"
+                                class="min-h-[38px] text-sm font-extrabold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <button onclick="resetAdminToCurrentShift()" class="min-h-[38px] px-2.5 rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700 hover:bg-indigo-100 cursor-pointer">
+                                Today Shift
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <span class="hidden lg:inline-block text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg font-medium">
+                    Covers <strong>6:00 PM</strong> to next day <strong>8:00 AM</strong>
+                </span>
+            </div>
+
+            <div class="grid grid-cols-3 sm:flex items-center gap-2">
+                <button onclick="loadSampleData()" class="min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center gap-1.5 transition cursor-pointer">
+                    <i class="fa-solid fa-database text-indigo-600"></i>
+                    <span>Sample</span>
+                </button>
+                <button onclick="confirmClearSampleOrAll()" class="min-h-[42px] px-3 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 flex items-center justify-center gap-1.5 transition cursor-pointer">
+                    <i class="fa-solid fa-trash-can"></i>
+                    <span>Clear</span>
+                </button>
+                <button onclick="exportToExcel()" class="min-h-[42px] px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm flex items-center justify-center gap-1.5 transition cursor-pointer">
+                    <i class="fa-solid fa-file-excel"></i>
+                    <span>Excel</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 1. KPI Summary Cards -->
+        <section class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Shift Trips</span>
+                    <span class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-route"></i></span>
+                </div>
+                <div class="mt-3">
+                    <span id="kpi-total" class="text-2xl sm:text-3xl font-extrabold text-slate-900">0</span>
+                    <p class="text-xs text-slate-400 mt-0.5">For selected shift date</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-amber-200/90 flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-amber-700">In Transit</span>
+                    <span class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center"><i class="fa-solid fa-truck-moving"></i></span>
+                </div>
+                <div class="mt-3">
+                    <span id="kpi-active" class="text-2xl sm:text-3xl font-extrabold text-amber-600">0</span>
+                    <p class="text-xs text-amber-600/80 mt-0.5">Pending / On road</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-emerald-200/90 flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Completed</span>
+                    <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-circle-check"></i></span>
+                </div>
+                <div class="mt-3">
+                    <span id="kpi-completed" class="text-2xl sm:text-3xl font-extrabold text-emerald-600">0</span>
+                    <p class="text-xs text-slate-400 mt-0.5">Marked DONE</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Avg Duration</span>
+                    <span class="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center"><i class="fa-solid fa-stopwatch"></i></span>
+                </div>
+                <div class="mt-3">
+                    <span id="kpi-avg-duration" class="text-2xl sm:text-3xl font-extrabold text-slate-900">0m</span>
+                    <p class="text-xs text-slate-400 mt-0.5">Expectable to Done</p>
+                </div>
+            </div>
+
+            <div class="col-span-2 lg:col-span-1 bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80 flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Team Split</span>
+                    <span class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center"><i class="fa-solid fa-users"></i></span>
+                </div>
+                <div class="mt-3">
+                    <span id="kpi-team-split" class="text-lg sm:text-xl font-extrabold text-slate-900">0 Rec / 0 Iss</span>
+                    <p class="text-xs text-slate-400 mt-0.5">Receiving vs. Issuing</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Smart Route Grouping Suggestions + Active Transports (In Transit) -->
+        <section class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+            <!-- Left 7 Cols: Smart Route Suggestions + Active Transports (In Transit) -->
+            <div class="lg:col-span-7 space-y-5">
+                <!-- Smart Route Grouping Suggestions Card -->
+                <div class="bg-indigo-950 text-white rounded-2xl shadow-md border border-indigo-800/80 overflow-hidden">
+                    <div class="px-4 sm:px-5 py-3.5 border-b border-indigo-800/80 flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                            <span class="w-8 h-8 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center text-sm shrink-0">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            </span>
+                            <div>
+                                <h2 class="font-extrabold text-sm sm:text-base">Smart Route Grouping Suggestions</h2>
+                                <p class="text-[11px] text-indigo-300">Auto-clusters same-corridor requests within ±60 mins</p>
+                            </div>
+                        </div>
+                        <span id="suggestions-count-badge" class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-indigo-800 text-amber-300 border border-indigo-700 shrink-0">
+                            0 Suggestions
+                        </span>
+                    </div>
+                    <div id="smart-suggestions-container" class="p-3.5 sm:p-4 space-y-2.5">
+                        <!-- Smart suggestions injected here -->
+                    </div>
+                </div>
+
+                <!-- Active Transports (In Transit) Board with Manual Tick-to-Group -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
+                    <div class="bg-amber-500/10 border-b border-amber-200/80 px-4 sm:px-5 py-3.5 sm:py-4 flex flex-wrap items-center justify-between gap-2.5">
+                        <div class="flex items-center gap-3">
+                            <div class="relative w-3 h-3 rounded-full bg-amber-500 live-dot shrink-0"></div>
+                            <div>
+                                <h2 class="font-extrabold text-sm sm:text-base text-slate-900">Active Transports (In Transit)</h2>
+                                <p class="text-[11px] sm:text-xs text-slate-600">Tick checkboxes to group routes manually, or tap <strong class="text-emerald-700">DONE</strong>.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 ml-auto sm:ml-0">
+                            <button id="select-all-active-btn" onclick="toggleSelectAllActive()"
+                                class="min-h-[38px] px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer">
+                                <i class="fa-regular fa-square-check text-indigo-600"></i>
+                                <span id="select-all-label">Tick All</span>
+                            </button>
+                            <span id="active-badge-count" class="px-3 py-1.5 rounded-full text-xs font-extrabold bg-amber-500 text-white">
+                                0 Active
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Inline Manual Tick Selection Action Bar (Appears whenever >= 1 active item is ticked) -->
+                    <div id="inline-selection-bar" class="hidden bg-indigo-950 text-white px-4 sm:px-5 py-3 border-b border-indigo-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div class="flex items-center justify-between sm:justify-start gap-2.5">
+                            <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold text-amber-300">
+                                <i class="fa-solid fa-check-square"></i>
+                                <span id="inline-selected-count">0</span> Ticked
+                            </span>
+                            <button type="button" onclick="clearAllSelectedForMerge()" class="text-xs text-indigo-200 hover:text-white underline font-semibold cursor-pointer">
+                                Clear Selection
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 sm:flex items-center gap-2">
+                            <button type="button" id="inline-group-btn" onclick="mergeSelectedActiveTrips()"
+                                class="min-h-[44px] px-3.5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 disabled:pointer-events-none text-white text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer">
+                                <i class="fa-solid fa-object-group"></i>
+                                <span>Group Ticked</span>
+                            </button>
+                            <button type="button" onclick="completeSelectedActiveTrips()"
+                                class="min-h-[44px] px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer">
+                                <i class="fa-solid fa-check-double"></i>
+                                <span>Mark DONE</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="active-transports-container" class="p-3.5 sm:p-5 space-y-3 max-h-[640px] overflow-y-auto">
+                        <!-- Active transport cards injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right 5 Cols: Complete Shift Update Table & WhatsApp Share -->
+            <div class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
+                <div class="bg-emerald-950 text-white px-5 py-4 flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-400 flex items-center justify-center text-lg">
+                            <i class="fa-brands fa-whatsapp"></i>
+                        </div>
+                        <div>
+                            <h2 class="font-extrabold text-sm sm:text-base">Complete Shift Update (WhatsApp)</h2>
+                            <p id="whatsapp-shift-subtitle" class="text-[11px] text-emerald-300">Shift: 17/11/2026 (6:00 PM – 8:00 AM)</p>
+                        </div>
+                    </div>
+                    <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-800 text-emerald-200">Auto-Grouped</span>
+                </div>
+
+                <div class="p-5 space-y-4">
+                    <p class="text-xs text-slate-500 leading-relaxed">
+                        Same-corridor dispatches (e.g., <strong>Ekala / Ja-Ela / Colombo</strong> or <strong>Kotugoda / Minuwangoda</strong>) are automatically grouped together for your daily WhatsApp update.
+                    </p>
+
+                    <!-- Clean 3-Column Preview Table: NAMES | ROUTE | TIMES -->
+                    <div class="border border-slate-200 rounded-xl overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-900 text-white text-[11px] font-extrabold uppercase tracking-wider">
+                                    <th class="py-2.5 px-3 border-r border-slate-700">NAMES</th>
+                                    <th class="py-2.5 px-3 border-r border-slate-700">ROUTE</th>
+                                    <th class="py-2.5 px-3">TIMES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="whatsapp-preview-tbody" class="divide-y divide-slate-200 text-xs">
+                                <!-- Grouped rows injected dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- WhatsApp Action Buttons -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                        <button onclick="copyWhatsAppSummary()"
+                            class="min-h-[46px] py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 active:scale-[0.98] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition cursor-pointer">
+                            <i class="fa-regular fa-copy"></i>
+                            <span>Copy for WhatsApp</span>
+                        </button>
+                        <button onclick="shareToWhatsApp()"
+                            class="min-h-[46px] py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition cursor-pointer">
+                            <i class="fa-brands fa-whatsapp text-base"></i>
+                            <span>Share via WhatsApp</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 3. Transport Analytics & Route Breakdown (Admin Only) -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-5 sm:p-6">
+            <div class="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-indigo-600 text-lg"></i>
+                        <h2 class="text-lg font-bold text-slate-900">Transport Analytics &amp; Route Breakdown</h2>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">Visual breakdown for selected Night Shift across routes, corridor groups, and Receiving vs. Issuing teams</p>
+                </div>
+                <button onclick="downloadChartsSnapshot()" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-2 transition cursor-pointer">
+                    <i class="fa-solid fa-image"></i>
+                    <span>Save Chart PNG</span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="bg-slate-50/70 rounded-xl p-4 border border-slate-200/70 flex flex-col">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3">Trips by Route</h3>
+                    <div class="relative flex-1 min-h-[220px] flex items-center justify-center">
+                        <canvas id="routeChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50/70 rounded-xl p-4 border border-slate-200/70 flex flex-col">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3">Corridor Group Share</h3>
+                    <div class="relative flex-1 min-h-[220px] flex items-center justify-center">
+                        <canvas id="corridorChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-50/70 rounded-xl p-4 border border-slate-200/70 flex flex-col">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600 mb-3">Team Split (Receiving vs Issuing)</h3>
+                    <div class="relative flex-1 min-h-[220px] flex items-center justify-center">
+                        <canvas id="teamChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Transport History & Master Log (Admin Only) -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden">
+            <div class="p-5 sm:p-6 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-table-list text-indigo-600 text-lg"></i>
+                        <h2 class="text-lg font-bold text-slate-900">Transport History &amp; Master Log</h2>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">Complete audit log for the selected Night Shift (also exported to Excel)</p>
+                </div>
+
+                <!-- Filters & Search -->
+                <div class="flex flex-wrap items-center gap-2.5">
+                    <div class="relative flex-1 sm:flex-initial">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="search-input" placeholder="Search staff, route, address..."
+                            class="w-full sm:w-52 pl-8 pr-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+
+                    <select id="filter-corridor" class="py-2 px-3 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="ALL">All Corridors</option>
+                        <option value="Colombo Corridor">Colombo Corridor</option>
+                        <option value="Minuwangoda / Katunayake / Kotugoda">Minu / Kat / Kotugoda</option>
+                        <option value="Other Routes">Other Routes</option>
+                    </select>
+
+                    <select id="filter-team" class="py-2 px-3 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="ALL">All Teams</option>
+                        <option value="Receiving Team">Receiving Team</option>
+                        <option value="Issuing Team">Issuing Team</option>
+                    </select>
+
+                    <select id="filter-status" class="py-2 px-3 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="ALL">All Status</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Done">Done</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th class="py-3.5 px-4">Shift Date</th>
+                            <th class="py-3.5 px-4">Route &amp; Corridor</th>
+                            <th class="py-3.5 px-4">Team</th>
+                            <th class="py-3.5 px-4">Staff Names</th>
+                            <th class="py-3.5 px-4">Address</th>
+                            <th class="py-3.5 px-4">Expectable</th>
+                            <th class="py-3.5 px-4">Done Time</th>
+                            <th class="py-3.5 px-4">Status</th>
+                            <th class="py-3.5 px-4 text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body" class="divide-y divide-slate-100 text-sm">
+                        <!-- Master log rows injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Floating Mobile Selection Action Bar (Appears above bottom nav when active items are ticked on phones) -->
+    <div id="floating-mobile-selection-bar"
+        class="hidden md:hidden fixed inset-x-3 z-40 bg-indigo-950/95 backdrop-blur-md text-white rounded-2xl p-3 shadow-2xl border border-indigo-700 flex items-center justify-between gap-2"
+        style="bottom: calc(4.5rem + env(safe-area-inset-bottom));">
+        <div class="flex items-center gap-2 pl-1">
+            <span class="w-7 h-7 rounded-lg bg-amber-400 text-slate-950 font-extrabold text-xs flex items-center justify-center" id="floating-selected-count">0</span>
+            <div class="leading-tight">
+                <div class="text-xs font-extrabold text-white">Selected</div>
+                <button type="button" onclick="clearAllSelectedForMerge()" class="text-[10px] text-indigo-300 underline font-semibold">Clear</button>
+            </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <button type="button" id="floating-group-btn" onclick="mergeSelectedActiveTrips()"
+                class="min-h-[42px] px-3 py-2 rounded-xl bg-indigo-500 active:bg-indigo-400 disabled:opacity-40 text-white text-xs font-extrabold flex items-center gap-1.5">
+                <i class="fa-solid fa-object-group"></i>
+                <span>Group</span>
+            </button>
+            <button type="button" onclick="completeSelectedActiveTrips()"
+                class="min-h-[42px] px-3 py-2 rounded-xl bg-emerald-500 active:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5">
+                <i class="fa-solid fa-check-double"></i>
+                <span>DONE</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Supabase Table Setup Helper Modal -->
+    <div id="db-setup-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-5 sm:p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-database"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base sm:text-lg font-extrabold text-slate-900">Supabase Database Connection</h3>
+                        <p class="text-xs text-slate-500">Project: <code class="font-mono text-indigo-600">gwbdbvsvytqgpzwcwbuv</code></p>
+                    </div>
+                </div>
+                <button onclick="closeDbSetupModal()" class="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="db-setup-status-box" class="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                Checking connection to <code class="font-mono font-bold">public.tms_trips</code>...
+            </div>
+
+            <p class="text-xs text-slate-600 mb-2 leading-relaxed">
+                If this is your first time connecting, open your <strong>Supabase Dashboard → SQL Editor → New Query</strong>, paste the SQL below, and click <strong>Run</strong>:
+            </p>
+
+            <div class="relative">
+                <pre id="supabase-setup-sql" class="bg-slate-950 text-emerald-300 font-mono text-[11px] p-3.5 rounded-xl overflow-x-auto leading-relaxed select-all">-- Run this once in Supabase SQL Editor to create the TMS table
+create table if not exists public.tms_trips (
+  id text primary key,
+  shift_date text not null,
+  expectable_time text not null,
+  route text not null,
+  route_group text not null,
+  team text not null,
+  staff_names text not null,
+  address text not null,
+  created_at bigint not null,
+  done_time text,
+  done_timestamp bigint,
+  duration_ms bigint,
+  status text not null default 'In Transit',
+  is_grouped boolean default false
+);
+
+-- Enable open read/write policies for staff & admin devices
+alter table public.tms_trips enable row level security;
+
+drop policy if exists "Allow public read tms_trips" on public.tms_trips;
+create policy "Allow public read tms_trips" on public.tms_trips for select using (true);
+
+drop policy if exists "Allow public insert tms_trips" on public.tms_trips;
+create policy "Allow public insert tms_trips" on public.tms_trips for insert with check (true);
+
+drop policy if exists "Allow public update tms_trips" on public.tms_trips;
+create policy "Allow public update tms_trips" on public.tms_trips for update using (true);
+
+drop policy if exists "Allow public delete tms_trips" on public.tms_trips;
+create policy "Allow public delete tms_trips" on public.tms_trips for delete using (true);
+
+-- Enable Real-Time updates across devices
+alter publication supabase_realtime add table public.tms_trips;</pre>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-end gap-2.5 mt-4">
+                <button onclick="copySupabaseSql()" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white flex items-center gap-1.5 cursor-pointer">
+                    <i class="fa-regular fa-copy"></i>
+                    <span>Copy SQL</span>
+                </button>
+                <button onclick="retrySupabaseSync()" class="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 cursor-pointer">
+                    <i class="fa-solid fa-rotate"></i>
+                    <span>Test &amp; Sync Now</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fixed Bottom Navigation Bar for Mobile Phones (< 768px) -->
+    <nav class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800 text-white shadow-2xl"
+        style="padding-bottom: env(safe-area-inset-bottom);">
+        <div class="grid grid-cols-4 h-16">
+            <button id="mobile-nav-request" onclick="switchView('request')"
+                class="flex flex-col items-center justify-center gap-1 text-indigo-400 font-bold text-[11px] transition active:bg-slate-900">
+                <i class="fa-solid fa-paper-plane text-base"></i>
+                <span>Request</span>
+            </button>
+            <button id="mobile-nav-admin" onclick="switchView('admin')"
+                class="relative flex flex-col items-center justify-center gap-1 text-slate-400 font-bold text-[11px] transition active:bg-slate-900">
+                <div class="relative">
+                    <i class="fa-solid fa-shield-halved text-base"></i>
+                    <span id="mobile-admin-badge" class="absolute -top-1.5 -right-3 px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-amber-500 text-slate-950">0</span>
+                </div>
+                <span>Admin</span>
+            </button>
+            <button onclick="shareToWhatsApp()"
+                class="flex flex-col items-center justify-center gap-1 text-emerald-400 font-bold text-[11px] transition active:bg-slate-900">
+                <i class="fa-brands fa-whatsapp text-base"></i>
+                <span>WhatsApp</span>
+            </button>
+            <button onclick="exportToExcel()"
+                class="flex flex-col items-center justify-center gap-1 text-sky-400 font-bold text-[11px] transition active:bg-slate-900">
+                <i class="fa-solid fa-file-excel text-base"></i>
+                <span>Excel</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-4 mt-8 hidden md:block">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+            <p><strong>TMS Dispatch System</strong> — Night Shift Transport Operations (6:00 PM – 8:00 AM)</p>
+            <p>Auto-saved locally • Manual &amp; Smart Corridor Grouping • WhatsApp &amp; Excel Ready</p>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * ============================================================================
+         * TMS DISPATCH — NIGHT SHIFT TRANSPORT MANAGEMENT SYSTEM + SUPABASE CLOUD DB
+         * ============================================================================
+         */
+
+        // Supabase Configuration (Public client key only - service_role key kept strictly out of browser)
+        const SUPABASE_URL = 'https://gwbdbvsvytqgpzwcwbuv.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3YmRidnN2eXRxZ3B6d2N3YnV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5NDA0OTIsImV4cCI6MjExMDUxNjQ5Mn0.Ivflj1RvBwdyCoBTLlx9XwUYPruR7w13jY7mLsa1Png';
+        const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+        let isSupabaseReady = false;
+        let realtimeChannel = null;
+
+        const STORAGE_KEY = 'tms_night_shift_records_v2';
+        let trips = [];
+        let selectedForMerge = new Set();
+
+        // Chart.js Instances
+        let routeChartInstance = null;
+        let corridorChartInstance = null;
+        let teamChartInstance = null;
+
+        /**
+         * ============================================================================
+         * NIGHT SHIFT OPERATIONAL DATE ENGINE (6:00 PM TO NEXT DAY 8:00 AM)
+         * ============================================================================
+         */
+        function getNightShiftDateString(dateObj = new Date()) {
+            const d = new Date(dateObj.getTime());
+            const hours = d.getHours();
+            if (hours < 8) {
+                d.setDate(d.getDate() - 1);
+            }
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function formatDDMMYYYY(isoDateStr) {
+            if (!isoDateStr || !isoDateStr.includes('-')) return isoDateStr || '-';
+            const [y, m, d] = isoDateStr.split('-');
+            return `${d}/${m}/${y}`;
+        }
+
+        function formatDisplayTime(timeStr, includeSeconds = false) {
+            if (!timeStr) return '-';
+            const parts = timeStr.split(':');
+            let h = parseInt(parts[0], 10);
+            const m = parts[1] || '00';
+            const s = parts[2] || '00';
+            if (isNaN(h)) return timeStr;
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12;
+            if (h === 0) h = 12;
+            return includeSeconds ? `${h}:${m}:${s} ${ampm}` : `${h}:${m} ${ampm}`;
+        }
+
+        function getLocalTimeString(dateObj = new Date()) {
+            const h = String(dateObj.getHours()).padStart(2, '0');
+            const m = String(dateObj.getMinutes()).padStart(2, '0');
+            const s = String(dateObj.getSeconds()).padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function getShiftMinutes(timeStr) {
+            if (!timeStr) return 0;
+            const [hStr, mStr] = timeStr.split(':');
+            const h = parseInt(hStr, 10) || 0;
+            const m = parseInt(mStr, 10) || 0;
+            const adjustedH = h < 12 ? h + 24 : h;
+            return adjustedH * 60 + m;
+        }
+
+        function getCorridorGroup(routeName) {
+            const normalized = routeName.toLowerCase();
+            if (normalized.includes('ekala') || normalized.includes('ja-ela') || normalized.includes('jaela') || normalized.includes('colombo')) {
+                return 'Colombo Corridor';
+            }
+            if (normalized.includes('minuwangoda') || normalized.includes('minuangoda') || normalized.includes('katunayake') || normalized.includes('katunayaka') || normalized.includes('kotugoda')) {
+                return 'Minuwangoda / Katunayake / Kotugoda';
+            }
+            return 'Other Routes';
+        }
+
+        function formatDuration(ms) {
+            if (!ms || ms < 0) return '0m';
+            const totalSec = Math.floor(ms / 1000);
+            const hrs = Math.floor(totalSec / 3600);
+            const mins = Math.floor((totalSec % 3600) / 60);
+            if (hrs > 0) return `${hrs}h ${mins}m`;
+            if (mins > 0) return `${mins}m`;
+            return `${totalSec}s`;
+        }
+
+        function setQuickExpectableTime(offsetMinutes) {
+            const target = new Date(Date.now() + offsetMinutes * 60000);
+            const h = String(target.getHours()).padStart(2, '0');
+            const m = String(target.getMinutes()).padStart(2, '0');
+            const timeInput = document.getElementById('trip-expectable-time');
+            if (timeInput) {
+                timeInput.value = `${h}:${m}`;
+            }
+        }
+
+        function updateHeaderStatus() {
+            const now = new Date();
+            const dateDisplay = document.getElementById('live-date-display');
+            const clockDisplay = document.getElementById('live-clock-display');
+            const shiftText = document.getElementById('header-shift-text');
+
+            if (dateDisplay) {
+                dateDisplay.textContent = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            }
+            if (clockDisplay) {
+                clockDisplay.textContent = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            }
+            if (shiftText) {
+                const shiftIso = getNightShiftDateString(now);
+                shiftText.textContent = `Shift: ${formatDDMMYYYY(shiftIso)}`;
+            }
+        }
+
+        function switchView(viewName) {
+            const reqView = document.getElementById('view-request');
+            const admView = document.getElementById('view-admin');
+            const reqTabBtn = document.getElementById('tab-request-btn');
+            const admTabBtn = document.getElementById('tab-admin-btn');
+            const mobReqBtn = document.getElementById('mobile-nav-request');
+            const mobAdmBtn = document.getElementById('mobile-nav-admin');
+
+            if (viewName === 'admin') {
+                reqView.classList.add('hidden');
+                admView.classList.remove('hidden');
+
+                if (reqTabBtn && admTabBtn) {
+                    reqTabBtn.className = 'px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer text-slate-300 hover:text-white';
+                    admTabBtn.className = 'px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer bg-indigo-600 text-white shadow-xs';
+                }
+                if (mobReqBtn && mobAdmBtn) {
+                    mobReqBtn.className = 'flex flex-col items-center justify-center gap-1 text-slate-400 font-bold text-[11px] transition active:bg-slate-900';
+                    mobAdmBtn.className = 'relative flex flex-col items-center justify-center gap-1 text-indigo-400 font-bold text-[11px] transition active:bg-slate-900';
+                }
+                renderAdminPanel();
+            } else {
+                admView.classList.add('hidden');
+                reqView.classList.remove('hidden');
+
+                if (reqTabBtn && admTabBtn) {
+                    admTabBtn.className = 'px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer text-slate-300 hover:text-white';
+                    reqTabBtn.className = 'px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition cursor-pointer bg-indigo-600 text-white shadow-xs';
+                }
+                if (mobReqBtn && mobAdmBtn) {
+                    mobAdmBtn.className = 'relative flex flex-col items-center justify-center gap-1 text-slate-400 font-bold text-[11px] transition active:bg-slate-900';
+                    mobReqBtn.className = 'flex flex-col items-center justify-center gap-1 text-indigo-400 font-bold text-[11px] transition active:bg-slate-900';
+                }
+                const floatingBar = document.getElementById('floating-mobile-selection-bar');
+                if (floatingBar) floatingBar.classList.add('hidden');
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const colors = {
+                success: 'bg-emerald-900 border-emerald-700 text-emerald-50',
+                warning: 'bg-amber-900 border-amber-700 text-amber-50',
+                error: 'bg-rose-900 border-rose-700 text-rose-50',
+                info: 'bg-slate-900 border-slate-700 text-white'
+            };
+            const icons = {
+                success: 'fa-circle-check text-emerald-400',
+                warning: 'fa-triangle-exclamation text-amber-400',
+                error: 'fa-circle-xmark text-rose-400',
+                info: 'fa-circle-info text-indigo-400'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl text-xs sm:text-sm font-semibold transition-all duration-300 ${colors[type] || colors.info}`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${escapeHtml(message)}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3200);
+        }
+
+        function openConfirmModal({ title, message, confirmText = 'Confirm', onConfirm }) {
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('modal-title');
+            const msgEl = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-confirm-btn');
+            const cancelBtn = document.getElementById('modal-cancel-btn');
+
+            if (!modal) return;
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            confirmBtn.textContent = confirmText;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            cancelBtn.onclick = cleanup;
+            confirmBtn.onclick = () => {
+                cleanup();
+                if (typeof onConfirm === 'function') onConfirm();
+            };
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        /**
+         * Map between App Trip Object and Supabase Row (snake_case)
+         */
+        function tripToDbRow(t) {
+            return {
+                id: t.id,
+                shift_date: t.shiftDate,
+                expectable_time: t.expectableTime,
+                route: t.route,
+                route_group: t.routeGroup,
+                team: t.team,
+                staff_names: t.staffNames,
+                address: t.address,
+                created_at: t.createdAt,
+                done_time: t.doneTime || null,
+                done_timestamp: t.doneTimestamp || null,
+                duration_ms: t.durationMs || null,
+                status: t.status || 'In Transit',
+                is_grouped: Boolean(t.isGrouped)
+            };
+        }
+
+        function dbRowToTrip(row) {
+            return {
+                id: row.id,
+                shiftDate: row.shift_date,
+                expectableTime: row.expectable_time,
+                route: row.route,
+                routeGroup: row.route_group,
+                team: row.team,
+                staffNames: row.staff_names,
+                address: row.address,
+                createdAt: Number(row.created_at) || Date.now(),
+                doneTime: row.done_time || null,
+                doneTimestamp: row.done_timestamp ? Number(row.done_timestamp) : null,
+                durationMs: row.duration_ms ? Number(row.duration_ms) : null,
+                status: row.status || 'In Transit',
+                isGrouped: Boolean(row.is_grouped)
+            };
+        }
+
+        function updateDbStatusBadge(state, detailMsg = '') {
+            const badge = document.getElementById('db-sync-badge');
+            const text = document.getElementById('db-sync-text');
+            const setupBox = document.getElementById('db-setup-status-box');
+            if (!badge || !text) return;
+
+            if (state === 'connected') {
+                badge.className = 'text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700/80 inline-flex items-center gap-1 cursor-pointer hover:bg-emerald-900 transition';
+                badge.innerHTML = `<i class="fa-solid fa-cloud-check text-emerald-400 text-[10px]"></i><span>Supabase Live</span>`;
+                if (setupBox) {
+                    setupBox.className = 'mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 font-semibold';
+                    setupBox.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-600 mr-1.5"></i>Connected to Supabase! All dispatches sync live across devices.`;
+                }
+            } else if (state === 'setup_needed') {
+                badge.className = 'text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700/80 inline-flex items-center gap-1 cursor-pointer hover:bg-amber-900 transition';
+                badge.innerHTML = `<i class="fa-solid fa-database text-amber-400 text-[10px]"></i><span>Setup DB Table</span>`;
+                if (setupBox) {
+                    setupBox.className = 'mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900';
+                    setupBox.innerHTML = `<strong>Table Setup Required:</strong> ${escapeHtml(detailMsg || 'Run the SQL script below in your Supabase SQL Editor to enable cloud sync.')}`;
+                }
+            } else {
+                badge.className = 'text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-700/80 inline-flex items-center gap-1 cursor-pointer hover:bg-rose-900 transition';
+                badge.innerHTML = `<i class="fa-solid fa-wifi text-rose-400 text-[10px]"></i><span>Offline Mode</span>`;
+                if (setupBox) {
+                    setupBox.className = 'mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900';
+                    setupBox.innerHTML = `<strong>Connection Notice:</strong> ${escapeHtml(detailMsg || 'Running in local backup mode.')}`;
+                }
+            }
+        }
+
+        function openDbSetupModal() {
+            const modal = document.getElementById('db-setup-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeDbSetupModal() {
+            const modal = document.getElementById('db-setup-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function copySupabaseSql() {
+            const sqlText = document.getElementById('supabase-setup-sql').textContent;
+            const textarea = document.createElement('textarea');
+            textarea.value = sqlText;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast('SQL script copied! Paste & Run in Supabase SQL Editor.', 'success');
+            } catch (e) {
+                showToast('Failed to copy SQL.', 'error');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        async function retrySupabaseSync() {
+            await initSupabaseSync(true);
+        }
+
+        /**
+         * Initialize Supabase Connection, Load Cloud Trips & Subscribe to Real-Time Changes
+         */
+        async function initSupabaseSync(manualTrigger = false) {
+            if (!supabaseClient) {
+                updateDbStatusBadge('offline', 'Supabase SDK could not load.');
+                return;
+            }
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('tms_trips')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) {
+                    isSupabaseReady = false;
+                    const msg = error.message || 'Table public.tms_trips not found';
+                    updateDbStatusBadge('setup_needed', msg);
+                    if (manualTrigger) {
+                        showToast('Table not created yet. Run the SQL script in Supabase first.', 'warning');
+                    }
+                    return;
+                }
+
+                isSupabaseReady = true;
+                updateDbStatusBadge('connected');
+
+                if (Array.isArray(data)) {
+                    // If Supabase has rows, use them as source of truth; if empty & local has unsynced rows, push local up
+                    if (data.length > 0) {
+                        trips = data.map(dbRowToTrip);
+                        saveTripsLocalCache();
+                    } else if (trips.length > 0) {
+                        await supabaseClient.from('tms_trips').upsert(trips.map(tripToDbRow));
+                    }
+                }
+
+                updateAdminTabBadge();
+                if (!document.getElementById('view-admin').classList.contains('hidden')) {
+                    renderAdminPanel();
+                }
+
+                // Subscribe to live database changes across all phones/PCs
+                if (!realtimeChannel) {
+                    realtimeChannel = supabaseClient
+                        .channel('tms-trips-live')
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'tms_trips' }, async () => {
+                            const { data: freshData } = await supabaseClient
+                                .from('tms_trips')
+                                .select('*')
+                                .order('created_at', { ascending: false });
+                            if (Array.isArray(freshData)) {
+                                trips = freshData.map(dbRowToTrip);
+                                saveTripsLocalCache();
+                                updateAdminTabBadge();
+                                if (!document.getElementById('view-admin').classList.contains('hidden')) {
+                                    renderAdminPanel();
+                                }
+                            }
+                        })
+                        .subscribe();
+                }
+
+                if (manualTrigger) {
+                    showToast('Connected & synced with Supabase database!', 'success');
+                    closeDbSetupModal();
+                }
+            } catch (err) {
+                isSupabaseReady = false;
+                updateDbStatusBadge('offline', err.message || 'Network error');
+            }
+        }
+
+        async function dbUpsertTrips(tripList) {
+            if (!isSupabaseReady || !supabaseClient || !tripList || tripList.length === 0) return;
+            const { error } = await supabaseClient
+                .from('tms_trips')
+                .upsert(tripList.map(tripToDbRow), { onConflict: 'id' });
+            if (error) {
+                console.error('Supabase upsert error:', error);
+                showToast('Cloud sync warning: saved locally.', 'warning');
+            }
+        }
+
+        async function dbDeleteTripsByIds(ids) {
+            if (!isSupabaseReady || !supabaseClient || !ids || ids.length === 0) return;
+            const { error } = await supabaseClient
+                .from('tms_trips')
+                .delete()
+                .in('id', ids);
+            if (error) {
+                console.error('Supabase delete error:', error);
+            }
+        }
+
+        async function dbClearAllTrips() {
+            if (!isSupabaseReady || !supabaseClient) return;
+            const { error } = await supabaseClient
+                .from('tms_trips')
+                .delete()
+                .neq('id', '');
+            if (error) {
+                console.error('Supabase clear error:', error);
+            }
+        }
+
+        /**
+         * Update Active Badge Count in Top Nav & Mobile Bottom Nav
+         */
+        function updateAdminTabBadge() {
+            const activeCount = trips.filter(t => t.status === 'In Transit').length;
+            document.getElementById('admin-tab-badge').textContent = activeCount;
+            const mobBadge = document.getElementById('mobile-admin-badge');
+            if (mobBadge) mobBadge.textContent = activeCount;
+        }
+
+        /**
+         * LocalStorage Persistence + Cache Helper
+         */
+        function saveTripsLocalCache() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(trips));
+            } catch (e) {
+                console.error('Storage error:', e);
+            }
+        }
+
+        function saveTrips() {
+            saveTripsLocalCache();
+        }
+
+        function loadTrips() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                trips = raw ? JSON.parse(raw) : [];
+            } catch (e) {
+                trips = [];
+            }
+        }
+
+        /**
+         * Seed realistic sample data for the current Night Shift on first launch
+         */
+        function seedInitialDemoDataIfEmpty() {
+            if (localStorage.getItem(STORAGE_KEY) !== null) return;
+            loadSampleData(true);
+        }
+
+        function loadSampleData(silent = false) {
+            const shiftDate = getNightShiftDateString(new Date());
+            const now = Date.now();
+
+            const samples = [
+                // Completed early-night trip
+                {
+                    id: 'TRP-1001',
+                    shiftDate: shiftDate,
+                    expectableTime: '20:30',
+                    route: 'Ekala / Ja-Ela',
+                    routeGroup: 'Colombo Corridor',
+                    team: 'Issuing Team',
+                    staffNames: 'Kasun Perera, Nimal Silva',
+                    address: 'Ekala Industrial Zone Gate 2 & Ja-Ela Junction',
+                    createdAt: now - 1000 * 60 * 140,
+                    doneTime: '21:15:00',
+                    doneTimestamp: now - 1000 * 60 * 95,
+                    durationMs: 1000 * 60 * 45,
+                    status: 'Done'
+                },
+                // Completed Katunayake trip
+                {
+                    id: 'TRP-1002',
+                    shiftDate: shiftDate,
+                    expectableTime: '21:15',
+                    route: 'Katunayake',
+                    routeGroup: 'Minuwangoda / Katunayake / Kotugoda',
+                    team: 'Receiving Team',
+                    staffNames: 'Chaminda Fernando',
+                    address: 'BOI Zone Gate 1, Katunayake',
+                    createdAt: now - 1000 * 60 * 90,
+                    doneTime: '21:45:00',
+                    doneTimestamp: now - 1000 * 60 * 60,
+                    durationMs: 1000 * 60 * 30,
+                    status: 'Done'
+                },
+                // Active Colombo Corridor group (triggers Smart Suggestion #1)
+                {
+                    id: 'TRP-1003',
+                    shiftDate: shiftDate,
+                    expectableTime: '23:15',
+                    route: 'Ekala',
+                    routeGroup: 'Colombo Corridor',
+                    team: 'Receiving Team',
+                    staffNames: 'Ruwan Kumara, Dilshan',
+                    address: 'Nivasipura Housing Scheme, Ekala',
+                    createdAt: now - 1000 * 60 * 25,
+                    doneTime: null,
+                    doneTimestamp: null,
+                    durationMs: null,
+                    status: 'In Transit'
+                },
+                {
+                    id: 'TRP-1004',
+                    shiftDate: shiftDate,
+                    expectableTime: '23:30',
+                    route: 'Ja-Ela',
+                    routeGroup: 'Colombo Corridor',
+                    team: 'Issuing Team',
+                    staffNames: 'Nuwan Pradeep',
+                    address: 'Kapuwatta Station Road, Ja-Ela',
+                    createdAt: now - 1000 * 60 * 20,
+                    doneTime: null,
+                    doneTimestamp: null,
+                    durationMs: null,
+                    status: 'In Transit'
+                },
+                {
+                    id: 'TRP-1005',
+                    shiftDate: shiftDate,
+                    expectableTime: '23:45',
+                    route: 'Colombo',
+                    routeGroup: 'Colombo Corridor',
+                    team: 'Issuing Team',
+                    staffNames: 'Tharindu Jayasuriya',
+                    address: 'Pettah / Fort Main Bus Stand, Colombo',
+                    createdAt: now - 1000 * 60 * 15,
+                    doneTime: null,
+                    doneTimestamp: null,
+                    durationMs: null,
+                    status: 'In Transit'
+                },
+                // Active Kotugoda + Minuwangoda after-midnight pair (triggers Smart Suggestion #2)
+                {
+                    id: 'TRP-1006',
+                    shiftDate: shiftDate,
+                    expectableTime: '01:30',
+                    route: 'Kotugoda',
+                    routeGroup: 'Minuwangoda / Katunayake / Kotugoda',
+                    team: 'Receiving Team',
+                    staffNames: 'Saman Kumara, Lahiru',
+                    address: 'Kotugoda Junction, Minuwangoda Rd',
+                    createdAt: now - 1000 * 60 * 10,
+                    doneTime: null,
+                    doneTimestamp: null,
+                    durationMs: null,
+                    status: 'In Transit'
+                },
+                {
+                    id: 'TRP-1007',
+                    shiftDate: shiftDate,
+                    expectableTime: '01:50',
+                    route: 'Minuwangoda',
+                    routeGroup: 'Minuwangoda / Katunayake / Kotugoda',
+                    team: 'Issuing Team',
+                    staffNames: 'Asanka Bandara',
+                    address: 'Minuwangoda Town Clock Tower',
+                    createdAt: now - 1000 * 60 * 5,
+                    doneTime: null,
+                    doneTimestamp: null,
+                    durationMs: null,
+                    status: 'In Transit'
+                }
+            ];
+
+            trips = [...samples, ...trips];
+            saveTrips();
+            dbUpsertTrips(samples);
+            updateAdminTabBadge();
+            if (!document.getElementById('view-admin').classList.contains('hidden')) {
+                renderAdminPanel();
+            }
+            if (!silent) showToast('Sample night shift requests loaded & synced!', 'info');
+        }
+
+        function confirmClearSampleOrAll() {
+            if (trips.length === 0) {
+                showToast('No records to clear.', 'info');
+                return;
+            }
+            openConfirmModal({
+                title: 'Clear All Transport Records',
+                message: 'Are you sure you want to delete all stored transport records from the database? Consider exporting to Excel first.',
+                confirmText: 'Clear All',
+                onConfirm: async () => {
+                    trips = [];
+                    selectedForMerge.clear();
+                    saveTrips();
+                    await dbClearAllTrips();
+                    updateAdminTabBadge();
+                    renderAdminPanel();
+                    showToast('All records cleared from database.', 'info');
+                }
+            });
+        }
+
+        /**
+         * Handle Request Portal Form Submission
+         */
+        function handleRequestSubmit(e) {
+            e.preventDefault();
+
+            const shiftDateVal = document.getElementById('trip-date').value;
+            const expectableTimeVal = document.getElementById('trip-expectable-time').value;
+            const selectedRouteRadio = document.querySelector('input[name="route"]:checked');
+            const customRouteVal = document.getElementById('custom-route-input').value.trim();
+            const teamVal = document.getElementById('team-select').value;
+            const staffRaw = document.getElementById('staff-names').value.trim();
+            const addressVal = document.getElementById('trip-address').value.trim();
+
+            if (!shiftDateVal || !expectableTimeVal || !selectedRouteRadio || !staffRaw || !addressVal) {
+                showToast('Please complete all required fields.', 'warning');
+                return;
+            }
+
+            let finalRoute = selectedRouteRadio.value;
+            if (finalRoute === 'Others') {
+                if (!customRouteVal) {
+                    showToast('Please type the custom route/destination name.', 'warning');
+                    document.getElementById('custom-route-input').focus();
+                    return;
+                }
+                finalRoute = customRouteVal;
+            }
+
+            const cleanedStaff = staffRaw
+                .split(/[\n,]+/)
+                .map(s => s.trim())
+                .filter(Boolean)
+                .join(', ');
+
+            const newTrip = {
+                id: 'TRP-' + Date.now().toString().slice(-5),
+                shiftDate: shiftDateVal,
+                expectableTime: expectableTimeVal,
+                route: finalRoute,
+                routeGroup: getCorridorGroup(finalRoute),
+                team: teamVal,
+                staffNames: cleanedStaff,
+                address: addressVal,
+                createdAt: Date.now(),
+                doneTime: null,
+                doneTimestamp: null,
+                durationMs: null,
+                status: 'In Transit'
+            };
+
+            trips.unshift(newTrip);
+            saveTrips();
+            dbUpsertTrips([newTrip]);
+            updateAdminTabBadge();
+
+            // Reset user inputs while preserving Night Shift Date
+            document.getElementById('staff-names').value = '';
+            document.getElementById('trip-address').value = '';
+            document.getElementById('custom-route-input').value = '';
+
+            // Show inline confirmation banner
+            const banner = document.getElementById('request-success-banner');
+            const detail = document.getElementById('request-success-detail');
+            detail.textContent = `${finalRoute} • ${formatDisplayTime(expectableTimeVal)} • ${cleanedStaff}`;
+            banner.classList.remove('hidden');
+
+            showToast(`Request saved to cloud: ${finalRoute} (${formatDisplayTime(expectableTimeVal)})`, 'success');
+        }
+
+        /**
+         * Get Trips Filtered by Selected Admin Shift Date
+         */
+        function getShiftFilteredTrips() {
+            const selectedShiftDate = document.getElementById('admin-shift-date-filter').value;
+            if (!selectedShiftDate) return trips;
+            return trips.filter(t => t.shiftDate === selectedShiftDate);
+        }
+
+        /**
+         * Reset Admin Shift Date Filter to Active Night Shift Date
+         */
+        function resetAdminToCurrentShift() {
+            const currentShift = getNightShiftDateString(new Date());
+            document.getElementById('admin-shift-date-filter').value = currentShift;
+            selectedForMerge.clear();
+            renderAdminPanel();
+            showToast(`Viewing active shift: ${formatDDMMYYYY(currentShift)}`, 'info');
+        }
+
+        /**
+         * ============================================================================
+         * SMART ROUTE GROUPING & TIME-WINDOW DISPATCH SUGGESTIONS ENGINE
+         * ============================================================================
+         * Analyzes active ("In Transit") requests in the selected shift:
+         * - Groups compatible corridor routes:
+         *     1. Colombo Corridor: Ekala, Ja-Ela, Colombo
+         *     2. Minuwangoda / Katunayake / Kotugoda Corridor: Kotugoda, Minuwangoda, Katunayake
+         * - Clusters requests whose Expectable Time falls within ±60 minutes of each other.
+         */
+        function computeSmartDispatchSuggestions(activeShiftTrips) {
+            const suggestions = [];
+            const targetCorridors = ['Colombo Corridor', 'Minuwangoda / Katunayake / Kotugoda'];
+
+            targetCorridors.forEach(corridor => {
+                const corridorTrips = activeShiftTrips
+                    .filter(t => t.routeGroup === corridor)
+                    .sort((a, b) => getShiftMinutes(a.expectableTime) - getShiftMinutes(b.expectableTime));
+
+                if (corridorTrips.length < 2) return;
+
+                // Cluster trips within 60 minutes window
+                let currentCluster = [corridorTrips[0]];
+
+                for (let i = 1; i < corridorTrips.length; i++) {
+                    const prevTime = getShiftMinutes(currentCluster[0].expectableTime);
+                    const currTime = getShiftMinutes(corridorTrips[i].expectableTime);
+
+                    if (Math.abs(currTime - prevTime) <= 60) {
+                        currentCluster.push(corridorTrips[i]);
+                    } else {
+                        if (currentCluster.length >= 2) {
+                            suggestions.push(buildSuggestionObject(corridor, currentCluster));
+                        }
+                        currentCluster = [corridorTrips[i]];
+                    }
+                }
+                if (currentCluster.length >= 2) {
+                    suggestions.push(buildSuggestionObject(corridor, currentCluster));
+                }
+            });
+
+            return suggestions;
+        }
+
+        function buildSuggestionObject(corridor, clusterTrips) {
+            // Unique ordered route names in this cluster
+            const uniqueRoutes = [...new Set(
+                clusterTrips.flatMap(t => t.route.split('/').map(r => r.trim()))
+            )];
+            const combinedRouteLabel = uniqueRoutes.join(' / ');
+
+            // Time window label
+            const sortedTimes = clusterTrips
+                .map(t => t.expectableTime)
+                .sort((a, b) => getShiftMinutes(a) - getShiftMinutes(b));
+            const earliest = formatDisplayTime(sortedTimes[0]);
+            const latest = formatDisplayTime(sortedTimes[sortedTimes.length - 1]);
+            const timeWindowLabel = earliest === latest ? earliest : `${earliest} – ${latest}`;
+
+            // All staff names combined
+            const allStaff = clusterTrips.map(t => t.staffNames).join(', ');
+            const staffCount = allStaff.split(',').map(s => s.trim()).filter(Boolean).length;
+
+            return {
+                id: 'SUG-' + clusterTrips.map(t => t.id).join('-'),
+                corridor,
+                tripIds: clusterTrips.map(t => t.id),
+                combinedRouteLabel,
+                timeWindowLabel,
+                earliestTime: sortedTimes[0],
+                allStaff,
+                staffCount,
+                requestCount: clusterTrips.length
+            };
+        }
+
+        /**
+         * Merge a list of active trip IDs into one combined route run
+         */
+        function mergeTripsByIds(tripIds, customRouteName = null) {
+            const targets = trips.filter(t => tripIds.includes(t.id) && t.status === 'In Transit');
+            if (targets.length < 2) {
+                showToast('Select at least 2 active trips to group together.', 'warning');
+                return;
+            }
+
+            // Sort chronologically by expectable time
+            targets.sort((a, b) => getShiftMinutes(a.expectableTime) - getShiftMinutes(b.expectableTime));
+
+            const uniqueRoutes = [...new Set(
+                targets.flatMap(t => t.route.split('/').map(r => r.trim()))
+            )];
+            const mergedRoute = customRouteName || uniqueRoutes.join(' / ');
+            const mergedCorridor = getCorridorGroup(mergedRoute);
+
+            const uniqueTeams = [...new Set(targets.map(t => t.team))];
+            const mergedTeam = uniqueTeams.length === 1 ? uniqueTeams[0] : 'Receiving & Issuing';
+
+            const mergedStaff = targets.map(t => t.staffNames).join(', ');
+            const mergedAddress = [...new Set(targets.map(t => t.address).filter(Boolean))].join(' | ');
+            const earliestTime = targets[0].expectableTime;
+            const shiftDate = targets[0].shiftDate;
+
+            const mergedTrip = {
+                id: 'GRP-' + Date.now().toString().slice(-5),
+                shiftDate: shiftDate,
+                expectableTime: earliestTime,
+                route: mergedRoute,
+                routeGroup: mergedCorridor,
+                team: mergedTeam,
+                staffNames: mergedStaff,
+                address: mergedAddress,
+                createdAt: Date.now(),
+                doneTime: null,
+                doneTimestamp: null,
+                durationMs: null,
+                status: 'In Transit',
+                isGrouped: true
+            };
+
+            // Remove individual trips and insert merged trip
+            trips = trips.filter(t => !tripIds.includes(t.id));
+            trips.unshift(mergedTrip);
+            selectedForMerge.clear();
+
+            saveTrips();
+            dbDeleteTripsByIds(tripIds);
+            dbUpsertTrips([mergedTrip]);
+            updateAdminTabBadge();
+            renderAdminPanel();
+            showToast(`Grouped ${targets.length} requests into "${mergedRoute}"!`, 'success');
+        }
+
+        /**
+         * Mark a group of trip IDs DONE immediately from a Smart Suggestion
+         */
+        function completeSuggestedGroupNow(tripIds) {
+            const now = new Date();
+            const doneTimeStr = getLocalTimeString(now);
+            const doneMs = now.getTime();
+
+            let count = 0;
+            const updatedTrips = [];
+            trips.forEach(trip => {
+                if (tripIds.includes(trip.id) && trip.status === 'In Transit') {
+                    trip.doneTime = doneTimeStr;
+                    trip.doneTimestamp = doneMs;
+                    trip.durationMs = Math.max(60000, doneMs - trip.createdAt);
+                    trip.status = 'Done';
+                    updatedTrips.push(trip);
+                    count++;
+                }
+            });
+
+            selectedForMerge.clear();
+            saveTrips();
+            dbUpsertTrips(updatedTrips);
+            updateAdminTabBadge();
+            renderAdminPanel();
+            showToast(`Marked ${count} grouped requests DONE at ${formatDisplayTime(doneTimeStr)}!`, 'success');
+        }
+
+        /**
+         * Toggle manual selection checkbox on Active Transport cards
+         */
+        function toggleSelectForMerge(tripId) {
+            if (selectedForMerge.has(tripId)) {
+                selectedForMerge.delete(tripId);
+            } else {
+                selectedForMerge.add(tripId);
+            }
+            updateMergeButtonUI();
+            renderActiveTransports(getShiftFilteredTrips());
+        }
+
+        /**
+         * Select All / Clear All Active Trips in the current shift
+         */
+        function toggleSelectAllActive() {
+            const activeTrips = getShiftFilteredTrips().filter(t => t.status === 'In Transit');
+            if (activeTrips.length === 0) return;
+
+            const allSelected = activeTrips.every(t => selectedForMerge.has(t.id));
+            if (allSelected) {
+                activeTrips.forEach(t => selectedForMerge.delete(t.id));
+            } else {
+                activeTrips.forEach(t => selectedForMerge.add(t.id));
+            }
+            updateMergeButtonUI();
+            renderActiveTransports(getShiftFilteredTrips());
+        }
+
+        /**
+         * Clear all ticked selections
+         */
+        function clearAllSelectedForMerge() {
+            selectedForMerge.clear();
+            updateMergeButtonUI();
+            renderActiveTransports(getShiftFilteredTrips());
+        }
+
+        /**
+         * Update Inline & Floating Mobile Selection Action Bars
+         */
+        function updateMergeButtonUI() {
+            const count = selectedForMerge.size;
+            const inlineBar = document.getElementById('inline-selection-bar');
+            const floatingBar = document.getElementById('floating-mobile-selection-bar');
+            const inlineCount = document.getElementById('inline-selected-count');
+            const floatingCount = document.getElementById('floating-selected-count');
+            const inlineGroupBtn = document.getElementById('inline-group-btn');
+            const floatingGroupBtn = document.getElementById('floating-group-btn');
+            const selectAllLabel = document.getElementById('select-all-label');
+
+            if (inlineCount) inlineCount.textContent = count;
+            if (floatingCount) floatingCount.textContent = count;
+
+            const activeTrips = getShiftFilteredTrips().filter(t => t.status === 'In Transit');
+            if (selectAllLabel) {
+                const allSelected = activeTrips.length > 0 && activeTrips.every(t => selectedForMerge.has(t.id));
+                selectAllLabel.textContent = allSelected ? 'Untick All' : 'Tick All';
+            }
+
+            const isAdminVisible = !document.getElementById('view-admin').classList.contains('hidden');
+
+            if (count >= 1 && isAdminVisible) {
+                inlineBar.classList.remove('hidden');
+                floatingBar.classList.remove('hidden');
+                const canGroup = count >= 2;
+                if (inlineGroupBtn) inlineGroupBtn.disabled = !canGroup;
+                if (floatingGroupBtn) floatingGroupBtn.disabled = !canGroup;
+            } else {
+                inlineBar.classList.add('hidden');
+                floatingBar.classList.add('hidden');
+            }
+        }
+
+        function mergeSelectedActiveTrips() {
+            mergeTripsByIds([...selectedForMerge]);
+        }
+
+        /**
+         * Mark all currently ticked active requests DONE at once
+         */
+        function completeSelectedActiveTrips() {
+            if (selectedForMerge.size === 0) return;
+            completeSuggestedGroupNow([...selectedForMerge]);
+        }
+
+        /**
+         * Mark Single Active Transport as DONE
+         */
+        function completeTransport(tripId) {
+            const trip = trips.find(t => t.id === tripId);
+            if (!trip) return;
+
+            const now = new Date();
+            const doneTimeStr = getLocalTimeString(now);
+            const doneMs = now.getTime();
+
+            trip.doneTime = doneTimeStr;
+            trip.doneTimestamp = doneMs;
+            trip.durationMs = Math.max(60000, doneMs - trip.createdAt);
+            trip.status = 'Done';
+
+            selectedForMerge.delete(tripId);
+            saveTrips();
+            dbUpsertTrips([trip]);
+            updateAdminTabBadge();
+            renderAdminPanel();
+            showToast(`Marked DONE: ${trip.route} at ${formatDisplayTime(doneTimeStr)}`, 'success');
+        }
+
+        /**
+         * Delete a specific transport record
+         */
+        function deleteTrip(tripId) {
+            openConfirmModal({
+                title: 'Delete Transport Record',
+                message: 'Remove this transport request from the database?',
+                confirmText: 'Delete',
+                onConfirm: () => {
+                    trips = trips.filter(t => t.id !== tripId);
+                    selectedForMerge.delete(tripId);
+                    saveTrips();
+                    dbDeleteTripsByIds([tripId]);
+                    updateAdminTabBadge();
+                    renderAdminPanel();
+                    showToast('Transport record removed.', 'info');
+                }
+            });
+        }
+
+        /**
+         * Render Smart Suggestions Card inside Admin Panel
+         */
+        function renderSmartSuggestions(shiftTrips) {
+            const container = document.getElementById('smart-suggestions-container');
+            const badge = document.getElementById('suggestions-count-badge');
+            const activeTrips = shiftTrips.filter(t => t.status === 'In Transit');
+            const suggestions = computeSmartDispatchSuggestions(activeTrips);
+
+            badge.textContent = `${suggestions.length} Suggestion${suggestions.length === 1 ? '' : 's'}`;
+
+            if (suggestions.length === 0) {
+                container.innerHTML = `
+                    <div class="text-xs text-indigo-200/80 bg-indigo-900/40 border border-indigo-800/60 rounded-xl p-3.5 flex items-center gap-3">
+                        <i class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+                        <span>No overlapping corridor requests within a 60-minute window right now. When multiple requests share <strong>Ekala / Ja-Ela / Colombo</strong> or <strong>Kotugoda / Minuwangoda / Katunayake</strong> around the same time, smart grouping suggestions will appear here.</span>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = suggestions.map(sug => {
+                const idsJson = JSON.stringify(sug.tripIds).replace(/"/g, '&quot;');
+                const safeRoute = escapeHtml(sug.combinedRouteLabel);
+                return `
+                    <div class="p-3.5 rounded-xl bg-white/10 border border-indigo-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="space-y-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-400 text-slate-950">
+                                    Same Route Window
+                                </span>
+                                <span class="text-sm font-extrabold text-white">${safeRoute}</span>
+                                <span class="text-xs font-mono text-emerald-300 font-bold">@ ${escapeHtml(sug.timeWindowLabel)}</span>
+                            </div>
+                            <p class="text-xs text-indigo-200">
+                                <strong>${sug.requestCount} Requests (${sug.staffCount} Staff):</strong> ${escapeHtml(sug.allStaff)}
+                            </p>
+                        </div>
+
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button onclick="mergeTripsByIds(${idsJson}, '${safeRoute.replace(/'/g, "\\'")}')"
+                                class="px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5">
+                                <i class="fa-solid fa-object-group"></i>
+                                <span>Group Together</span>
+                            </button>
+                            <button onclick="completeSuggestedGroupNow(${idsJson})"
+                                class="px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold transition cursor-pointer flex items-center gap-1.5">
+                                <i class="fa-solid fa-check-double"></i>
+                                <span>All DONE</span>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * Render Active Transports (In Transit) Cards in Admin Panel with Touch-Friendly Tick Boxes
+         */
+        function renderActiveTransports(shiftTrips) {
+            const container = document.getElementById('active-transports-container');
+            const badge = document.getElementById('active-badge-count');
+            const activeTrips = shiftTrips
+                .filter(t => t.status === 'In Transit')
+                .sort((a, b) => getShiftMinutes(a.expectableTime) - getShiftMinutes(b.expectableTime));
+
+            badge.textContent = `${activeTrips.length} Active`;
+            updateMergeButtonUI();
+
+            if (activeTrips.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 px-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/60">
+                        <div class="w-11 h-11 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto mb-2.5 text-lg">
+                            <i class="fa-solid fa-truck-ramp-box"></i>
+                        </div>
+                        <h3 class="text-sm font-bold text-slate-700">No Active Transports Pending</h3>
+                        <p class="text-xs text-slate-500 mt-1">All dispatches for this shift are completed or awaiting new staff requests.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activeTrips.map(trip => {
+                const isChecked = selectedForMerge.has(trip.id);
+                const corridorColor = trip.routeGroup === 'Colombo Corridor'
+                    ? 'bg-blue-100 text-blue-800 border-blue-200'
+                    : trip.routeGroup === 'Minuwangoda / Katunayake / Kotugoda'
+                        ? 'bg-purple-100 text-purple-800 border-purple-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200';
+
+                return `
+                    <div class="p-3.5 sm:p-4 rounded-2xl border-2 ${isChecked ? 'border-indigo-600 bg-indigo-50/60 ring-2 ring-indigo-500/20' : 'border-amber-200 bg-gradient-to-r from-amber-50/50 via-white to-white'} shadow-2xs hover:shadow-md transition flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+                        <div class="flex items-start gap-3 flex-1">
+                            <!-- Large Touch-Friendly 44x44px Tap Target Checkbox -->
+                            <label class="min-w-[44px] min-h-[44px] -ml-1.5 -mt-1 flex items-center justify-center rounded-xl hover:bg-indigo-100/60 cursor-pointer shrink-0 select-none" title="Tick to group this transport">
+                                <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSelectForMerge('${trip.id}')"
+                                    class="w-6 h-6 rounded-lg border-2 border-slate-400 text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-600">
+                            </label>
+
+                            <div class="space-y-1.5 flex-1 min-w-0" onclick="toggleSelectForMerge('${trip.id}')">
+                                <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                                    <span class="text-base font-extrabold text-slate-900">${escapeHtml(trip.route)}</span>
+                                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full border ${corridorColor}">
+                                        ${escapeHtml(trip.routeGroup)}
+                                    </span>
+                                    <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                                        ${escapeHtml(trip.team)}
+                                    </span>
+                                </div>
+
+                                <div class="text-xs sm:text-sm text-slate-800 break-words">
+                                    <i class="fa-solid fa-users text-indigo-500 mr-1"></i>
+                                    <strong>Staff:</strong> ${escapeHtml(trip.staffNames)}
+                                </div>
+
+                                <div class="text-xs text-slate-600 break-words">
+                                    <i class="fa-solid fa-location-dot text-rose-500 mr-1"></i>
+                                    <strong>Address:</strong> ${escapeHtml(trip.address)}
+                                </div>
+
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-0.5">
+                                    <span><i class="fa-regular fa-calendar mr-1"></i>Shift: <strong>${formatDDMMYYYY(trip.shiftDate)}</strong></span>
+                                    <span class="text-amber-800 font-extrabold"><i class="fa-regular fa-clock mr-1"></i>Expectable: ${formatDisplayTime(trip.expectableTime)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2 sm:flex-col sm:items-end shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                            <button onclick="completeTransport('${trip.id}')"
+                                class="flex-1 sm:flex-initial sm:w-auto min-h-[44px] px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.97] text-white font-extrabold text-sm shadow-sm flex items-center justify-center gap-2 transition cursor-pointer">
+                                <i class="fa-solid fa-check-double"></i>
+                                <span>DONE</span>
+                            </button>
+                            <button onclick="deleteTrip('${trip.id}')" class="min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
+                                Remove
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /**
+         * ============================================================================
+         * COMPLETE SHIFT UPDATE TABLE & WHATSAPP FORMATTER
+         * ============================================================================
+         * Groups people sent on the same corridor/route within the selected Night Shift
+         * (6:00 PM to 8:00 AM) into a clean 3-column summary: NAMES | ROUTE | TIMES
+         */
+        function buildGroupedShiftSummaryRows(shiftTrips) {
+            if (shiftTrips.length === 0) return [];
+
+            // Sort trips chronologically across the night shift (6:00 PM -> 8:00 AM)
+            const sorted = [...shiftTrips].sort(
+                (a, b) => getShiftMinutes(a.expectableTime) - getShiftMinutes(b.expectableTime)
+            );
+
+            // Group compatible corridor trips that run within the same dispatch wave (<= 60 mins apart)
+            // or share the exact same route
+            const groupedWaves = [];
+
+            sorted.forEach(trip => {
+                const tripMin = getShiftMinutes(trip.expectableTime);
+                const isMajorCorridor = trip.routeGroup === 'Colombo Corridor' || trip.routeGroup === 'Minuwangoda / Katunayake / Kotugoda';
+
+                const existingWave = groupedWaves.find(wave => {
+                    if (isMajorCorridor && wave.routeGroup === trip.routeGroup) {
+                        return Math.abs(tripMin - wave.anchorMin) <= 60;
+                    }
+                    return wave.routes.includes(trip.route) && Math.abs(tripMin - wave.anchorMin) <= 60;
+                });
+
+                const timeLabel = trip.status === 'Done' && trip.doneTime
+                    ? `${formatDisplayTime(trip.expectableTime)} (Done: ${formatDisplayTime(trip.doneTime)})`
+                    : formatDisplayTime(trip.expectableTime);
+
+                if (existingWave) {
+                    existingWave.staffList.push(trip.staffNames);
+                    trip.route.split('/').map(r => r.trim()).forEach(r => {
+                        if (!existingWave.routes.includes(r)) existingWave.routes.push(r);
+                    });
+                    if (!existingWave.times.includes(timeLabel)) {
+                        existingWave.times.push(timeLabel);
+                    }
+                } else {
+                    groupedWaves.push({
+                        routeGroup: trip.routeGroup,
+                        anchorMin: tripMin,
+                        routes: trip.route.split('/').map(r => r.trim()),
+                        staffList: [trip.staffNames],
+                        times: [timeLabel]
+                    });
+                }
+            });
+
+            return groupedWaves.map(w => ({
+                names: w.staffList.join(', '),
+                route: w.routes.join(' / '),
+                times: w.times.join(' | ')
+            }));
+        }
+
+        function renderWhatsAppSummaryTable(shiftTrips) {
+            const tbody = document.getElementById('whatsapp-preview-tbody');
+            const selectedShiftDate = document.getElementById('admin-shift-date-filter').value;
+            document.getElementById('whatsapp-shift-subtitle').textContent =
+                `Shift Date: ${formatDDMMYYYY(selectedShiftDate)} (6:00 PM – 8:00 AM)`;
+
+            const summaryRows = buildGroupedShiftSummaryRows(shiftTrips);
+
+            if (summaryRows.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="py-8 px-3 text-center text-slate-400 text-xs">
+                            No transport entries recorded for ${formatDDMMYYYY(selectedShiftDate)} yet.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = summaryRows.map(row => `
+                <tr class="hover:bg-emerald-50/40 transition">
+                    <td class="py-2.5 px-3 border-r border-slate-200 font-semibold text-slate-800 align-top">${escapeHtml(row.names)}</td>
+                    <td class="py-2.5 px-3 border-r border-slate-200 font-bold text-indigo-700 align-top">${escapeHtml(row.route)}</td>
+                    <td class="py-2.5 px-3 font-mono text-[11px] font-semibold text-slate-700 align-top">${escapeHtml(row.times)}</td>
+                </tr>
+            `).join('');
+        }
+
+        function generateWhatsAppPlainText() {
+            const selectedShiftDate = document.getElementById('admin-shift-date-filter').value;
+            const formattedShift = formatDDMMYYYY(selectedShiftDate);
+            const shiftTrips = getShiftFilteredTrips();
+            const rows = buildGroupedShiftSummaryRows(shiftTrips);
+
+            let text = `*NIGHT SHIFT TRANSPORT UPDATE*\n`;
+            text += `*Shift Date:* ${formattedShift} (6:00 PM - 8:00 AM)\n`;
+            text += `------------------------------------\n`;
+            text += `*NAMES* | *ROUTE* | *TIMES*\n`;
+            text += `------------------------------------\n`;
+
+            if (rows.length === 0) {
+                text += `No transports recorded for this shift.\n`;
+            } else {
+                rows.forEach((r, idx) => {
+                    text += `${idx + 1}. *${r.names}*\n`;
+                    text += `   Route: ${r.route}\n`;
+                    text += `   Time: ${r.times}\n\n`;
+                });
+            }
+
+            text += `Total Trips: ${shiftTrips.length} | Completed: ${shiftTrips.filter(t => t.status === 'Done').length}`;
+            return text;
+        }
+
+        function copyWhatsAppSummary() {
+            const text = generateWhatsAppPlainText();
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast('Shift update copied! Ready to paste in WhatsApp.', 'success');
+            } catch (err) {
+                showToast('Failed to copy text.', 'error');
+            }
+            document.body.removeChild(textarea);
+        }
+
+        function shareToWhatsApp() {
+            const text = generateWhatsAppPlainText();
+            const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+
+        /**
+         * Render KPIs & Chart.js Analytics in Admin Panel
+         */
+        function renderAdminAnalytics(shiftTrips) {
+            const total = shiftTrips.length;
+            const active = shiftTrips.filter(t => t.status === 'In Transit').length;
+            const completed = shiftTrips.filter(t => t.status === 'Done');
+            const completedCount = completed.length;
+
+            let avgText = '0m';
+            if (completedCount > 0) {
+                const totalMs = completed.reduce((acc, t) => acc + (t.durationMs || 0), 0);
+                avgText = formatDuration(totalMs / completedCount);
+            }
+
+            const recCount = shiftTrips.filter(t => t.team === 'Receiving Team').length;
+            const issCount = shiftTrips.filter(t => t.team === 'Issuing Team').length;
+
+            document.getElementById('kpi-total').textContent = total;
+            document.getElementById('kpi-active').textContent = active;
+            document.getElementById('kpi-completed').textContent = completedCount;
+            document.getElementById('kpi-avg-duration').textContent = avgText;
+            document.getElementById('kpi-team-split').textContent = `${recCount} Rec / ${issCount} Iss`;
+
+            // Route breakdown counts
+            const routeCategories = ['Ekala', 'Ja-Ela', 'Colombo', 'Minuwangoda', 'Katunayake', 'Kotugoda', 'Others'];
+            const routeCounts = routeCategories.map(cat => {
+                if (cat === 'Others') {
+                    return shiftTrips.filter(t => t.routeGroup === 'Other Routes').length;
+                }
+                return shiftTrips.filter(t => t.route.toLowerCase().includes(cat.toLowerCase())).length;
+            });
+
+            // Corridor counts
+            const colomboCount = shiftTrips.filter(t => t.routeGroup === 'Colombo Corridor').length;
+            const minuCount = shiftTrips.filter(t => t.routeGroup === 'Minuwangoda / Katunayake / Kotugoda').length;
+            const otherCount = shiftTrips.filter(t => t.routeGroup === 'Other Routes').length;
+
+            // 1. Route Bar Chart
+            const routeCtx = document.getElementById('routeChart').getContext('2d');
+            if (routeChartInstance) routeChartInstance.destroy();
+            routeChartInstance = new Chart(routeCtx, {
+                type: 'bar',
+                data: {
+                    labels: routeCategories,
+                    datasets: [{
+                        label: 'Trips',
+                        data: routeCounts,
+                        backgroundColor: ['#2563eb', '#3b82f6', '#1d4ed8', '#9333ea', '#a855f7', '#7e22ce', '#f59e0b'],
+                        borderRadius: 6,
+                        maxBarThickness: 30
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0, font: { size: 11 } }, grid: { color: '#e2e8f0' } },
+                        x: { ticks: { font: { size: 10, weight: '600' } }, grid: { display: false } }
+                    }
+                }
+            });
+
+            // 2. Corridor Doughnut Chart
+            const corridorCtx = document.getElementById('corridorChart').getContext('2d');
+            if (corridorChartInstance) corridorChartInstance.destroy();
+            corridorChartInstance = new Chart(corridorCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Colombo Corridor', 'Minu / Kat / Kotugoda', 'Other Routes'],
+                    datasets: [{
+                        data: [colomboCount, minuCount, otherCount],
+                        backgroundColor: ['#2563eb', '#9333ea', '#f59e0b'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 11 } } }
+                    }
+                }
+            });
+
+            // 3. Team Split Chart
+            const teamCtx = document.getElementById('teamChart').getContext('2d');
+            if (teamChartInstance) teamChartInstance.destroy();
+            teamChartInstance = new Chart(teamCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Receiving Team', 'Issuing Team'],
+                    datasets: [{
+                        data: [recCount, issCount],
+                        backgroundColor: ['#0d9488', '#f97316'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 11, font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+
+        /**
+         * Render Transport History & Master Log Table
+         */
+        function renderHistoryTable(shiftTrips) {
+            const tbody = document.getElementById('history-table-body');
+            const query = document.getElementById('search-input').value.toLowerCase().trim();
+            const corridorFilter = document.getElementById('filter-corridor').value;
+            const teamFilter = document.getElementById('filter-team').value;
+            const statusFilter = document.getElementById('filter-status').value;
+
+            const filtered = shiftTrips.filter(t => {
+                if (corridorFilter !== 'ALL' && t.routeGroup !== corridorFilter) return false;
+                if (teamFilter !== 'ALL' && t.team !== teamFilter) return false;
+                if (statusFilter !== 'ALL' && t.status !== statusFilter) return false;
+                if (query) {
+                    const hay = `${t.route} ${t.routeGroup} ${t.team} ${t.staffNames} ${t.address}`.toLowerCase();
+                    if (!hay.includes(query)) return false;
+                }
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="py-10 text-center text-slate-400 text-sm">
+                            No transport logs found for this shift &amp; filter selection.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(trip => {
+                const isDone = trip.status === 'Done';
+                const corridorTagClass = trip.routeGroup === 'Colombo Corridor'
+                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                    : trip.routeGroup === 'Minuwangoda / Katunayake / Kotugoda'
+                        ? 'bg-purple-50 text-purple-700 border-purple-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200';
+
+                const statusBadge = isDone
+                    ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800"><i class="fa-solid fa-circle-check text-[10px]"></i> DONE</span>`
+                    : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800"><i class="fa-solid fa-truck-fast text-[10px]"></i> In Transit</span>`;
+
+                return `
+                    <tr class="hover:bg-slate-50/90 transition">
+                        <td class="py-3.5 px-4 whitespace-nowrap text-xs font-bold text-slate-700">${formatDDMMYYYY(trip.shiftDate)}</td>
+                        <td class="py-3.5 px-4">
+                            <div class="font-bold text-slate-900 text-xs sm:text-sm">${escapeHtml(trip.route)}</div>
+                            <span class="inline-block text-[10px] font-bold px-2 py-0.5 rounded border mt-0.5 ${corridorTagClass}">
+                                ${escapeHtml(trip.routeGroup)}
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4 whitespace-nowrap text-xs font-semibold text-slate-700">${escapeHtml(trip.team)}</td>
+                        <td class="py-3.5 px-4 text-xs font-medium text-slate-800 max-w-[200px]">${escapeHtml(trip.staffNames)}</td>
+                        <td class="py-3.5 px-4 text-xs text-slate-600 max-w-[200px]">${escapeHtml(trip.address)}</td>
+                        <td class="py-3.5 px-4 whitespace-nowrap text-xs font-mono font-bold text-slate-700">${formatDisplayTime(trip.expectableTime)}</td>
+                        <td class="py-3.5 px-4 whitespace-nowrap text-xs font-mono font-bold ${isDone ? 'text-emerald-700' : 'text-slate-400'}">
+                            ${isDone ? formatDisplayTime(trip.doneTime, true) : 'Pending...'}
+                        </td>
+                        <td class="py-3.5 px-4 whitespace-nowrap">${statusBadge}</td>
+                        <td class="py-3.5 px-4 whitespace-nowrap text-right">
+                            <div class="inline-flex items-center gap-1.5">
+                                ${!isDone ? `
+                                    <button onclick="completeTransport('${trip.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer">
+                                        DONE
+                                    </button>
+                                ` : ''}
+                                <button onclick="deleteTrip('${trip.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer" title="Delete">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        /**
+         * Master Admin Panel Re-Render
+         */
+        function renderAdminPanel() {
+            const shiftTrips = getShiftFilteredTrips();
+            renderSmartSuggestions(shiftTrips);
+            renderActiveTransports(shiftTrips);
+            renderWhatsAppSummaryTable(shiftTrips);
+            renderAdminAnalytics(shiftTrips);
+            renderHistoryTable(shiftTrips);
+        }
+
+        /**
+         * Multi-Sheet Excel Export (.xlsx) via SheetJS
+         */
+        function exportToExcel() {
+            const shiftTrips = getShiftFilteredTrips();
+            const selectedShiftDate = document.getElementById('admin-shift-date-filter').value;
+
+            if (shiftTrips.length === 0) {
+                showToast('No records available for the selected shift to export.', 'warning');
+                return;
+            }
+
+            try {
+                // Sheet 1: Complete Shift Master Log
+                const logRows = [...shiftTrips].reverse().map((t, i) => ({
+                    'No.': i + 1,
+                    'Trip ID': t.id,
+                    'Shift Date': formatDDMMYYYY(t.shiftDate),
+                    'Route': t.route,
+                    'Corridor Group': t.routeGroup,
+                    'Team': t.team,
+                    'Staff Names': t.staffNames,
+                    'Address': t.address,
+                    'Expectable Time': formatDisplayTime(t.expectableTime),
+                    'Done Time': t.status === 'Done' ? formatDisplayTime(t.doneTime, true) : 'In Transit',
+                    'Status': t.status
+                }));
+
+                // Sheet 2: Grouped WhatsApp Summary (NAMES | ROUTE | TIMES)
+                const groupedRows = buildGroupedShiftSummaryRows(shiftTrips).map((r, i) => ({
+                    'Group #': i + 1,
+                    'Shift Date': formatDDMMYYYY(selectedShiftDate),
+                    'NAMES': r.names,
+                    'ROUTE': r.route,
+                    'TIMES': r.times
+                }));
+
+                // Sheet 3: Route & Team Analytics
+                const analyticsRows = [
+                    { 'Metric': 'Colombo Corridor (Ekala / Ja-Ela / Colombo)', 'Total Trips': shiftTrips.filter(t => t.routeGroup === 'Colombo Corridor').length, 'Completed': shiftTrips.filter(t => t.routeGroup === 'Colombo Corridor' && t.status === 'Done').length },
+                    { 'Metric': 'Minuwangoda / Katunayake / Kotugoda', 'Total Trips': shiftTrips.filter(t => t.routeGroup === 'Minuwangoda / Katunayake / Kotugoda').length, 'Completed': shiftTrips.filter(t => t.routeGroup === 'Minuwangoda / Katunayake / Kotugoda' && t.status === 'Done').length },
+                    { 'Metric': 'Other Custom Routes', 'Total Trips': shiftTrips.filter(t => t.routeGroup === 'Other Routes').length, 'Completed': shiftTrips.filter(t => t.routeGroup === 'Other Routes' && t.status === 'Done').length },
+                    { 'Metric': 'Receiving Team', 'Total Trips': shiftTrips.filter(t => t.team === 'Receiving Team').length, 'Completed': shiftTrips.filter(t => t.team === 'Receiving Team' && t.status === 'Done').length },
+                    { 'Metric': 'Issuing Team', 'Total Trips': shiftTrips.filter(t => t.team === 'Issuing Team').length, 'Completed': shiftTrips.filter(t => t.team === 'Issuing Team' && t.status === 'Done').length }
+                ];
+
+                const wb = XLSX.utils.book_new();
+                const ws1 = XLSX.utils.json_to_sheet(logRows);
+                const ws2 = XLSX.utils.json_to_sheet(groupedRows);
+                const ws3 = XLSX.utils.json_to_sheet(analyticsRows);
+
+                ws1['!cols'] = [
+                    { wch: 6 }, { wch: 11 }, { wch: 13 }, { wch: 22 }, { wch: 30 },
+                    { wch: 18 }, { wch: 28 }, { wch: 32 }, { wch: 16 }, { wch: 16 }, { wch: 12 }
+                ];
+                ws2['!cols'] = [{ wch: 9 }, { wch: 13 }, { wch: 34 }, { wch: 28 }, { wch: 28 }];
+                ws3['!cols'] = [{ wch: 38 }, { wch: 14 }, { wch: 14 }];
+
+                XLSX.utils.book_append_sheet(wb, ws1, 'Shift Master Log');
+                XLSX.utils.book_append_sheet(wb, ws2, 'WhatsApp Grouped Summary');
+                XLSX.utils.book_append_sheet(wb, ws3, 'Shift Analytics');
+
+                XLSX.writeFile(wb, `TMS_NightShift_${selectedShiftDate}.xlsx`);
+                showToast('Excel report downloaded!', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Excel export failed.', 'error');
+            }
+        }
+
+        /**
+         * Download Combined Chart PNG
+         */
+        function downloadChartsSnapshot() {
+            const c1 = document.getElementById('routeChart');
+            const c2 = document.getElementById('corridorChart');
+            const c3 = document.getElementById('teamChart');
+
+            const combined = document.createElement('canvas');
+            combined.width = 1200;
+            combined.height = 420;
+            const ctx = combined.getContext('2d');
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 1200, 420);
+            ctx.fillStyle = '#0f172a';
+            ctx.font = 'bold 18px Inter, sans-serif';
+            const shiftDate = document.getElementById('admin-shift-date-filter').value;
+            ctx.fillText(`TMS Night Shift Analytics — Shift Date: ${formatDDMMYYYY(shiftDate)}`, 24, 36);
+
+            ctx.drawImage(c1, 20, 60, 370, 330);
+            ctx.drawImage(c2, 415, 60, 370, 330);
+            ctx.drawImage(c3, 810, 60, 370, 330);
+
+            const link = document.createElement('a');
+            link.download = `TMS_Analytics_${shiftDate}.png`;
+            link.href = combined.toDataURL('image/png');
+            link.click();
+            showToast('Analytics chart PNG downloaded!', 'success');
+        }
+
+        /**
+         * Initialize Application
+         */
+        window.addEventListener('DOMContentLoaded', async () => {
+            loadTrips();
+
+            const activeShiftDate = getNightShiftDateString(new Date());
+            document.getElementById('trip-date').value = activeShiftDate;
+            document.getElementById('admin-shift-date-filter').value = activeShiftDate;
+
+            // Default Expectable Time to next half-hour for convenience (manual input)
+            const now = new Date();
+            const defaultH = String(now.getHours()).padStart(2, '0');
+            const defaultM = now.getMinutes() < 30 ? '30' : '00';
+            document.getElementById('trip-expectable-time').value = `${defaultH}:${defaultM}`;
+
+            updateHeaderStatus();
+            updateAdminTabBadge();
+            setInterval(updateHeaderStatus, 1000);
+
+            // Connect & synchronize with Supabase cloud database
+            await initSupabaseSync(false);
+            if (!isSupabaseReady) {
+                seedInitialDemoDataIfEmpty();
+                updateAdminTabBadge();
+            }
+
+            // Show/hide Custom Route input when "Others" radio pill is clicked
+            document.querySelectorAll('input[name="route"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const customWrapper = document.getElementById('custom-route-wrapper');
+                    if (e.target.value === 'Others') {
+                        customWrapper.classList.remove('hidden');
+                        document.getElementById('custom-route-input').focus();
+                    } else {
+                        customWrapper.classList.add('hidden');
+                    }
+                });
+            });
+
+            // Form submit
+            document.getElementById('dispatch-form').addEventListener('submit', handleRequestSubmit);
+
+            // Admin Shift Date filter & table filters
+            document.getElementById('admin-shift-date-filter').addEventListener('change', () => {
+                selectedForMerge.clear();
+                renderAdminPanel();
+            });
+            document.getElementById('search-input').addEventListener('input', () => renderHistoryTable(getShiftFilteredTrips()));
+            document.getElementById('filter-corridor').addEventListener('change', () => renderHistoryTable(getShiftFilteredTrips()));
+            document.getElementById('filter-team').addEventListener('change', () => renderHistoryTable(getShiftFilteredTrips()));
+            document.getElementById('filter-status').addEventListener('change', () => renderHistoryTable(getShiftFilteredTrips()));
+        });
+    </script>
+</body>
+</html>
